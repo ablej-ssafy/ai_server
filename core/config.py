@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     HUGGINGFACEHUB_API_TOKEN: str
     DEVICE_NUM: str
 
+    # MODEL
+    ANALYSIS_LLM_MODEL: str
 
 # 환경 변수 로드 및 검증
 settings = Settings()
