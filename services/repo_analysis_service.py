@@ -15,6 +15,20 @@ model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, token=settings.HUGGINGF
 
 MAX_TOKENS = model.config.max_position_embeddings
 
+exclude_patterns = [
+    "package-lock.json",
+    ".git/",
+    "node_modules/",
+    "*.log",
+    "*.tmp"
+]
+
+def is_excluded(file_path):
+    for pattern in exclude_patterns:
+        if re.search(pattern, file_path):
+            return True
+    return False
+
 def preprocess_content(content):
     """
     content 내 불필요한 공백과 줄바꿈을 제거하여 토큰 수를 줄입니다.
@@ -62,7 +76,7 @@ def text_model_response(content: str) -> Dict[str, Any]:
         inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
 
         try:
-            outputs = model.generate(**inputs, max_new_tokens=100, do_sample=True)
+            outputs = model.generate(**inputs, max_new_tokens=100, do_sample=True, pad_token_id=tokenizer.eos_token_id)
             result = tokenizer.decode(outputs[0], skip_special_tokens=True)
             results.append(result)
         except Exception as e:
@@ -103,7 +117,7 @@ def summarize_code_with_llama(content):
         inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
 
         try:
-            outputs = model.generate(**inputs, max_new_tokens=100, do_sample=True)
+            outputs = model.generate(**inputs, max_new_tokens=100, do_sample=True, pad_token_id=tokenizer.eos_token_id)
             result = tokenizer.decode(outputs[0], skip_special_tokens=True)
             results.append(result)
         except Exception as e:
@@ -122,19 +136,25 @@ async def analyze_files(owner, repo, branch, token=None):
     analysis_results = {}
 
     for file_path in files:
+        print(f"LOG: Analyzing file {file_path}")
+
         try:
             content = fetch_file_content(owner, repo, file_path, branch, token)
             if content is None:
                 print(f"LOG Skipping {file_path} due to missing content.")
                 continue
 
-            # LLaMA 모델로 요약 생성
+            # LLaMA 모델을 사용하여 요약 생성
             summary = summarize_code_with_llama(content)['final_summary']
             analysis_results[file_path] = {"summary": summary}
 
+
+        except UnicodeDecodeError as e:
+            print(f"LOG Failed to analyze {file_path} due to encoding error: {e}")
+            analysis_results[file_path] = {"error": "Encoding error"}
         except Exception as e:
             print(f"LOG Failed to analyze {file_path}: {e}")
-            analysis_results[file_path] = {"analyze to error": str(e)}
+            analysis_results[file_path] = {"error": str(e)}
 
     return analysis_results
 
@@ -151,7 +171,7 @@ def summation_repo_codes(file_summaries):
 
     # inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to("cuda")
     inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
-    outputs = model.generate(**inputs, max_new_tokens=100, do_sample=True)
+    outputs = model.generate(**inputs, max_new_tokens=100, do_sample=True, pad_token_id=tokenizer.eos_token_id)
     summary_result = tokenizer.decode(outputs[0], skip_special_tokens=True)
 
     return summary_result
