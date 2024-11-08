@@ -3,6 +3,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import List, Dict, Any
 from core.config import settings
 import torch
+import re
 
 MODEL_NAME = settings.ANALYSIS_LLM_MODEL
 DEVICE = f"cuda:{settings.DEVICE_NUM}" if torch.cuda.is_available() else "cpu"
@@ -12,11 +13,19 @@ model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, token=settings.HUGGINGF
 
 MAX_TOKENS = model.config.max_position_embeddings
 
-def split_into_chunks(text: str, max_chunk_tokens: int) -> List[str]:
+def preprocess_content(content):
+    """
+    content 내 불필요한 공백과 줄바꿈을 제거하여 토큰 수를 줄입니다.
+    """
+    # \n, \t 및 중복 공백 제거
+    cleaned_content = re.sub(r'\s+', ' ', content.replace("\n", " ").replace("\t", " "))
+    return cleaned_content
+
+def split_into_chunks(content: str, max_chunk_tokens: int) -> List[str]:
     """
     텍스트를 최대 토큰 크기에 맞춰 청크로 나눕니다.
     """
-    tokens = tokenizer(text, return_tensors="pt", truncation=True).input_ids[0]
+    tokens = tokenizer(content, return_tensors="pt", truncation=True).input_ids[0]
     chunked_texts = []
     start = 0
 
@@ -32,7 +41,9 @@ def text_model_response(content: str) -> Dict[str, Any]:
     """
     파일 텍스트를 나누어 모델에 입력하고 결과를 반환합니다.
     """
-    chunked_texts = split_into_chunks(content, MAX_TOKENS)
+    cleaned_content = preprocess_content(content)
+
+    chunked_texts = split_into_chunks(cleaned_content, MAX_TOKENS)
     unique_chunks = []
     results = []
 
@@ -42,7 +53,7 @@ def text_model_response(content: str) -> Dict[str, Any]:
             unique_chunks.append(chunk)
 
     for chunk in unique_chunks:
-        prompt = f"Summarize the purpose and key features of the following text for resume preparation:\n\n{chunk}"
+        prompt = f"Summarize the essential aspects of this code, focusing only on the following: 1) Key functionalities, 2) Important patterns and structures, 3) Unique techniques or dependencies:\n\n{chunk}"
         inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
 
         try:
