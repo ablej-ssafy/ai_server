@@ -2,6 +2,8 @@ from utils.git_utils import fetch_repo_files, fetch_file_content
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import List, Dict, Any
 from core.config import settings
+import openai
+import tiktoken
 import torch
 import re
 
@@ -47,13 +49,16 @@ def text_model_response(content: str) -> Dict[str, Any]:
     unique_chunks = []
     results = []
 
-    # 중복 청크를 제외하고 3번 이하의 반복만 포함
     for chunk in chunked_texts:
         if unique_chunks.count(chunk) < 3:
             unique_chunks.append(chunk)
 
     for chunk in unique_chunks:
-        prompt = f"Summarize the essential aspects of this code, focusing only on the following: 1) Key functionalities, 2) Important patterns and structures, 3) Unique techniques or dependencies:\n\n{chunk}"
+        prompt = (
+            f"Summarize the essential aspects of this code, focusing only on the following:\n"
+            f"1) Key functionalities, 2) Important patterns and structures, 3) Unique techniques or dependencies.\n"
+            f"Do not mention specific function names or code details.\n\nCode:\n{chunk}\n\nSummary:"
+        )
         inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
 
         try:
@@ -78,15 +83,39 @@ async def get_file_content(owner, repo, file_path, branch, token=None):
     return fetch_file_content(owner, repo, file_path, branch, token)
 
 def summarize_code_with_llama(content):
-    prompt = (
-        "Summarize the key logic of the following code as it would be relevant for a resume, "
-        "emphasizing core functionality, optimizations, and technologies used:\n\n"
-        f"{content}\n\n"
-        "Provide a numbered list of main points."
-    )
+    cleaned_content = preprocess_content(content)
 
-    response = prompt
-    return response
+    chunked_texts = split_into_chunks(cleaned_content, MAX_TOKENS)
+    unique_chunks = []
+    results = []
+
+    # 중복 청크를 제외하고 3번 이하의 반복만 포함
+    for chunk in chunked_texts:
+        if unique_chunks.count(chunk) < 2:
+            unique_chunks.append(chunk)
+
+    for chunk in unique_chunks:
+        prompt = (
+            f"Summarize the essential aspects of this code, focusing only on the following:\n"
+            f"1) Key functionalities, 2) Important patterns and structures, 3) Unique techniques or dependencies.\n"
+            f"Do not mention specific function names or code details.\n\nCode:\n{chunk}\n\nSummary:"
+        )
+        inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
+
+        try:
+            outputs = model.generate(**inputs, max_new_tokens=100, do_sample=True)
+            result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            results.append(result)
+        except Exception as e:
+            print(f"LOG: Error encountered - {str(e)}")
+            results.append("Error in generating response")
+
+    return {
+        "total_tokens": sum(len(tokenizer(chunk).input_ids) for chunk in unique_chunks),
+        "chunk_size": MAX_TOKENS,
+        "chunk_responses": results,
+        "final_summary": " ".join(results)
+    }
 
 async def analyze_files(owner, repo, branch, token=None):
     files = fetch_repo_files(owner, repo, branch, token)
@@ -100,11 +129,70 @@ async def analyze_files(owner, repo, branch, token=None):
                 continue
 
             # LLaMA 모델로 요약 생성
-            summary = summarize_code_with_llama(content)
+            summary = summarize_code_with_llama(content)['final_summary']
             analysis_results[file_path] = {"summary": summary}
 
         except Exception as e:
             print(f"LOG Failed to analyze {file_path}: {e}")
-            analysis_results[file_path] = {"error": str(e)}
+            analysis_results[file_path] = {"analyze to error": str(e)}
 
     return analysis_results
+
+
+def summation_repo_codes(file_summaries):
+    combined_original_summary = " ".join(summary for summary in file_summaries.values() if summary)
+
+    prompt = (
+            "The following is a combined summary of multiple code files. Extract key details relevant for a resume, "
+            "focusing on purpose, main functions, technologies used, and any optimization or efficiency "
+            "improvements across all files.\n\nCombined Summary:\n" + combined_original_summary +
+            "\n\nResponse:"
+    )
+
+    # inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to("cuda")
+    inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
+    outputs = model.generate(**inputs, max_new_tokens=100, do_sample=True)
+    summary_result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    return summary_result
+
+
+def generate_openai_summary(content, directory_structure, example_summary):
+    # 프롬프트 텍스트 정의
+    prompt = (
+        f"다음 프로젝트의 내용을 기반으로 이력서 작성에 도움이 되는 프로젝트 요약을 작성해줘.\n\n"
+        f"1. 프로젝트 요약\n2. 사용 기술\n3. 핵심 기능과 서비스의 강점\n\n"
+        f"디렉터리 구조:\n{directory_structure}\n\n"
+        f"프로젝트 파일 요약:\n{example_summary}\n\n"
+        f"참고:\n{content}\n\n"
+    )
+
+    encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+
+    tokens = encoding.encode(prompt)
+    token_count = len(tokens)
+
+    print(f"LOG: token_count: {token_count}")
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "응답은 한글로 작성해 주세요."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=1000,
+        temperature=0.5,
+        n=1,
+        stop=None
+    )
+
+    summary_text = response.choices[0]['message']['content'].strip()
+    return summary_text
+
+def project_summation(example_summary, directory_structure):
+    resume_summary = generate_openai_summary(
+        content="",
+        directory_structure=directory_structure,
+        example_summary=example_summary, indent=4, ensure_ascii=False)
+
+    return resume_summary
