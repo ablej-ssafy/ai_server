@@ -4,15 +4,15 @@ from typing import List, Dict, Any
 from core.config import settings
 import torch
 
+MODEL_NAME = settings.ANALYSIS_LLM_MODEL
+DEVICE = f"cuda:{settings.DEVICE_NUM}" if torch.cuda.is_available() else "cpu"
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN).to(DEVICE)
+
+MAX_TOKENS = model.config.max_position_embeddings
 
 def split_into_chunks(text: str, max_chunk_tokens: int) -> List[str]:
-    MODEL_NAME = settings.ANALYSIS_LLM_MODEL
-    DEVICE = f"cuda:{settings.DEVICE_NUM}" if torch.cuda.is_available() else "cpu"
-
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN).to(DEVICE)
-
-    MAX_TOKENS = model.config.max_position_embeddings
     """
     텍스트를 최대 토큰 크기에 맞춰 청크로 나눕니다.
     """
