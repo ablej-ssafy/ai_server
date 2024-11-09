@@ -36,9 +36,11 @@ async def analyze_repo(
     request: GitRepoRequest
 ):
     try:
+        print(f"\n\nLOG: analyze_result 호출")
         analyze_result = await analyze_files(request.owner, request.repo, request.branch, request.token)
         await save_to_json(analyze_result, "analyze_result.json")
 
+        print(f"\n\nLOG: summation_result 호출")
         summation_result = await summation_repo_codes(analyze_result)
         await save_to_json(summation_result, "summation_result.json")
 
