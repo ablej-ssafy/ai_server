@@ -24,7 +24,7 @@ exclude_patterns = [
     "package-lock.json", ".classpath", ".gitignore", ".project", ".settings/*",
     ".git/", "*.png", "*.jpg", ".idea/*", "settings.gradle", "*.iml", "*.pptx",
     "node_modules/", "*.jar", "*.ico", "*.glb", "*.svg", "*.gif",
-    "*.log",
+    "*.log", ".eslintrc.cjs", "jsconfig.json", ".eslintignore",
     "*.tmp",
     "*.sql",
     "*.pdf"
