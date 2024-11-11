@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException
-from services.repo_analysis_service import get_repo_files, get_file_content, analyze_files, summation_repo_codes, project_summation
+from services.repo_analysis_service import get_repo_files, get_file_content, analyze_files, summation_repo_codes, \
+    project_summation
 from schemas.git_repo import GitRepoRequest, GitRepoFileRequest
 import json
 
 router = APIRouter(
     prefix="/repo",
 )
+
 
 @router.post("/file-path")
 async def repo(
@@ -17,6 +19,7 @@ async def repo(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.post("/file-content")
 async def repo(
         request: GitRepoFileRequest
@@ -27,25 +30,34 @@ async def repo(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 async def save_to_json(data, filename):
     with open(filename, "w") as f:
         json.dump(data, f)
 
+
 @router.post("/analyze")
 async def analyze_repo(
-    request: GitRepoRequest
+        request: GitRepoRequest
 ):
     try:
         print(f"\n\nLOG: analyze_result 호출")
         analyze_result = await analyze_files(request.owner, request.repo, request.branch, request.token)
-        await save_to_json(analyze_result, "analyze_result.json")
+        # await save_to_json(analyze_result, "analyze_result.json")
+        # with open("/home/j-k11s206/project/ai_server/analyze_result.json", "r") as file:
+        #     analyze_result = json.load(file)
 
-        print(f"\n\nLOG: summation_result 호출")
+        # print(f"\n\nLOG: summation_result 호출")
         summation_result = await summation_repo_codes(analyze_result)
-        await save_to_json(summation_result, "summation_result.json")
+        # await save_to_json(summation_result, "summation_result.json")
 
         repo_trees = await get_repo_files(request.owner, request.repo, request.branch, request.token)
-        await save_to_json(repo_trees, "repo_trees.json")
+        # await save_to_json(repo_trees, "repo_trees.json")
+
+        # with open("/home/j-k11s206/project/ai_server/repo_trees.json", "r") as file:
+        #     repo_trees = json.load(file)
+        # with open("/home/j-k11s206/project/ai_server/summation_result.json", "r") as file:
+        #     summation_result = json.load(file)
 
         result = await project_summation(summation_result, repo_trees)
         await save_to_json(result, "project_summation_result.json")
