@@ -1,13 +1,17 @@
-from fastapi import APIRouter, HTTPException
-from services.repo_analysis_service import get_repo_files, get_file_content, analyze_files, summation_repo_codes, \
-    project_summation
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from services.repo_analysis_service import get_repo_files, get_file_content
 from schemas.git_repo import GitRepoRequest, GitRepoFileRequest
 import json
+from workers.celery import app
+from workers.tasks.llm import llama_task, openai_task
+from core.config import settings
+import redis
 
 router = APIRouter(
     prefix="/repo",
 )
 
+redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
 
 @router.post("/file-path")
 async def repo(
@@ -35,33 +39,31 @@ async def save_to_json(data, filename):
     with open(filename, "w") as f:
         json.dump(data, f)
 
+@router.get("/status/{request_id}")
+async def check_status(request_id: str):
+    status_data = redis_client.get(request_id)
+    if status_data:
+        status = json.loads(status_data)
+
+        if status["status"] in ["completed", "failed"]:
+            redis_client.delete(request_id)
+            return status
+
+        return status
+    else:
+        raise HTTPException(status_code=404, detail="요청한 UUID 작업이 존재하지 않습니다.")
 
 @router.post("/analyze")
 async def analyze_repo(
-        request: GitRepoRequest
+        request: GitRepoRequest, background_tasks: BackgroundTasks
 ):
-    try:
-        print(f"\n\nLOG: analyze_result 호출")
-        analyze_result = await analyze_files(request.owner, request.repo, request.branch, request.token)
-        # await save_to_json(analyze_result, "analyze_result.json")
-        # with open("/home/j-k11s206/project/ai_server/analyze_result.json", "r") as file:
-        #     analyze_result = json.load(file)
+    request_id = request.request_id
+    redis_client.set(request_id, json.dumps({"status": "initialized", "step": "pending"}))
 
-        # print(f"\n\nLOG: summation_result 호출")
-        summation_result = await summation_repo_codes(analyze_result)
-        # await save_to_json(summation_result, "summation_result.json")
+    llama_task.apply_async(args=[request.dict()])
 
-        repo_trees = await get_repo_files(request.owner, request.repo, request.branch, request.token)
-        # await save_to_json(repo_trees, "repo_trees.json")
+    return {"request_id": request_id, "status": "initialized"}
 
-        # with open("/home/j-k11s206/project/ai_server/repo_trees.json", "r") as file:
-        #     repo_trees = json.load(file)
-        # with open("/home/j-k11s206/project/ai_server/summation_result.json", "r") as file:
-        #     summation_result = json.load(file)
-
-        result = await project_summation(summation_result, repo_trees)
-        await save_to_json(result, "project_summation_result.json")
-
-        return {"status": "success", "analysis": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.task(bind=True)
+def llama_callback(self, request_data, request_id):
+    openai_task.apply_async(args=[request_data])
