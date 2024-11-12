@@ -1,5 +1,5 @@
 from utils.git_utils import fetch_repo_files, fetch_file_content
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from typing import List
 from core.config import settings
 from langchain.prompts import PromptTemplate
@@ -69,7 +69,6 @@ def split_text(text, chunk_size=3800, overlap=200):
 
 
 async def summarize_chunk(chunk):
-    print(f"\n\nLOG: chunk : {chunk}\n\n")
     prompt_template = (
         "The following is a part of a project summary. Summarize it focusing on "
         "key points such as purpose, main functions, and technologies used:\n\n"
@@ -149,10 +148,19 @@ async def analyze_files(owner, repo, branch, token=None):
     print(f"LOG: filtered files : {files}")
     analysis_results = {}
 
+    # 4bit 양자화 설정
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+
     MODEL_NAME = settings.ANALYSIS_LLM_MODEL
     DEVICE = f"cuda:{settings.DEVICE_NUM}" if torch.cuda.is_available() else "cpu"
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN,
+                                              quantization_config=bnb_config)
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN).to(DEVICE)
     MAX_TOKENS = model.config.max_position_embeddings
 
@@ -190,11 +198,17 @@ async def summation_repo_codes(file_summaries):
 async def generate_openai_summary(content, directory_structure, example_summary):
     # 프롬프트 텍스트 정의
     prompt = (
-        f"다음 프로젝트의 내용을 기반으로 이력서 작성에 도움이 되는 프로젝트 요약을 작성해줘.\n\n"
-        f"1. 프로젝트 요약\n2. 사용 기술\n3. 핵심 기능과 서비스의 강점\n\n"
-        f"디렉터리 구조:\n{directory_structure}\n\n"
-        f"프로젝트 파일 요약:\n{example_summary}\n\n"
-        f"참고:\n{content}\n\n"
+        f"다음 프로젝트의 내용을 기반으로 이력서 작성에 도움이 되는 프로젝트 요약을 작성해줘. "
+        f"요약, 기술 스택, 강점 등 각각의 항목에 대해 세부적으로 작성하고, 필요시 구체적인 예시를 들어줘. 응답은 제공된 템플릿에 맞춰서 HTML로 작성해줘."
+        f"<h2>프로젝트 요약</h2>\n"
+        f"<p>이 섹션에는 프로젝트의 목적과 주요 기능을 간략하게 설명해줘. 이 프로젝트가 해결하려고 하는 문제와 이를 위해 어떤 방법을 사용했는지 기술해.</p>\n"
+        f"<h2>사용 기술</h2>\n"
+        f"<p>여기에는 프로젝트에서 사용된 주요 기술, 라이브러리, 툴들을 나열해줘. 각각의 기술이 어떤 목적으로 사용되었는지 한두 문장으로 설명해.</p>\n"
+        f"<h2>핵심 기능과 서비스의 강점</h2>\n"
+        f"<p>이 섹션에는 프로젝트의 핵심 기능과 그 기능의 강점을 설명해줘. 이 기능들이 사용자에게 어떤 이점을 제공하는지 구체적으로 작성해줘.</p>"
+        f"\n\n"
+        f"<h3>디렉터리 구조:</h3>\n<pre>{directory_structure}</pre>\n\n"
+        f"<h3>프로젝트 파일 요약:</h3>\n<pre>{example_summary}</pre>\n\n"
     )
 
     try:

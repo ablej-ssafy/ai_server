@@ -8,6 +8,7 @@ from redis.exceptions import LockError
 import torch
 import gc
 import json
+import aiohttp
 
 redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
 gpu_lock = redis_client.lock('gpu_lock', timeout=600)
@@ -73,6 +74,22 @@ def openai_task(self, request_data: dict):
             result = await project_summation(summation_result, repo_trees)
 
             redis_client.set(request_id, json.dumps({"status": "completed", "result": result}))
+
+            async with aiohttp.ClientSession() as session:
+                try:
+                    payload = {
+                        "email": request_data.get("email"),
+                        "repositoryName": f"{request_data.get('owner')}/{request_data.get('repo')}",
+                        "analysisSummary": result
+                    }
+                    async with session.post(f"{settings.MAIN_SERVER_URI}/v1/github/analysis/result",
+                                            json=payload) as response:
+                        if response.status == 200:
+                            print("LOG: Successfully sent analysis result.")
+                        else:
+                            print(f"LOG: Failed to send analysis result. Status code: {response.status}")
+                except Exception as e:
+                    print(f"LOG: Error in sending analysis result - {str(e)}")
         except Exception as e:
             redis_client.set(request_id, json.dumps({"status": "failed", "step": "openai_processing", "error": str(e)}))
 
