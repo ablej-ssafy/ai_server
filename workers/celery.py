@@ -1,11 +1,14 @@
 from celery import Celery
 from core.config import settings
+from workers.tasks.llm import llama_task, openai_task
 
 app = Celery(
     __name__,
     broker=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
     backend=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
 )
+
+app.autodiscover_tasks(['workers.tasks.llm'])
 
 app.conf.update(
     worker_prefetch_multiplier=1,

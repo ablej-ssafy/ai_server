@@ -58,13 +58,12 @@ async def analyze_repo(
         request: GitRepoRequest, background_tasks: BackgroundTasks
 ):
     request_id = request.request_id
-    await redis_client.set(request_id, json.dumps({"status": "initialized", "step": "pending"}))
+    redis_client.set(request_id, json.dumps({"status": "initialized", "step": "pending"}))
 
-    llama_task.apply_async(args=[request.dict(), request.request_id])
+    llama_task.apply_async(args=[request.dict()])
 
     return {"request_id": request_id, "status": "initialized"}
 
 @app.task(bind=True)
 def llama_callback(self, request_data, request_id):
-    # OpenAI 작업 추가
-    openai_task.apply_async(args=[request_data, request_id])
+    openai_task.apply_async(args=[request_data])
