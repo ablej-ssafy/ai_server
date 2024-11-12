@@ -85,7 +85,6 @@ async def summarize_chunk(chunk):
 
 async def summarize_entire_text(text, chunk_size=3800, overlap=200):
     chunks = split_text(text, chunk_size=chunk_size, overlap=overlap)
-    print(f"\n\nLOG: chunks : {chunks}\n\n")
 
     # 비동기 병렬로 각 청크 요약
     summarized_chunks = await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks))
@@ -94,6 +93,7 @@ async def summarize_entire_text(text, chunk_size=3800, overlap=200):
     final_summary = " ".join(summarized_chunks)
     return final_summary
 
+
 async def get_repo_files(owner, repo, branch, token=None):
     return fetch_repo_files(owner, repo, branch, token)
 
@@ -101,15 +101,9 @@ async def get_repo_files(owner, repo, branch, token=None):
 async def get_file_content(owner, repo, file_path, branch, token=None):
     return fetch_file_content(owner, repo, file_path, branch, token)
 
-def summarize_code_with_llama(content):
+
+def summarize_code_with_llama(content, DEVICE, tokenizer, model, MAX_TOKENS):
     try:
-        MODEL_NAME = settings.ANALYSIS_LLM_MODEL
-        DEVICE = f"cuda:{settings.DEVICE_NUM}" if torch.cuda.is_available() else "cpu"
-
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN)
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN).to(DEVICE)
-        MAX_TOKENS = model.config.max_position_embeddings
-
         filtered_content = "\n".join(
             line for line in content.splitlines() if not line.strip().startswith(("import", "from")))
         cleaned_content = preprocess_content(filtered_content)
@@ -127,13 +121,13 @@ def summarize_code_with_llama(content):
             inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
 
             try:
-                outputs = model.generate(**inputs, max_new_tokens=80, do_sample=True, pad_token_id=tokenizer.eos_token_id)
+                outputs = model.generate(**inputs, max_new_tokens=80, do_sample=True,
+                                         pad_token_id=tokenizer.eos_token_id)
                 result = tokenizer.decode(outputs[0], skip_special_tokens=True)
                 results.append(result)
             except Exception as e:
                 print(f"LOG: Error encountered - {str(e)}")
                 results.append("Error in generating response")
-
 
         return {
             "total_tokens": sum(len(tokenizer(chunk).input_ids) for chunk in unique_chunks),
@@ -148,11 +142,19 @@ def summarize_code_with_llama(content):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+
 async def analyze_files(owner, repo, branch, token=None):
     files = fetch_repo_files(owner, repo, branch, token)
     files = [res for res in files if not is_excluded(res)]
     print(f"LOG: filtered files : {files}")
     analysis_results = {}
+
+    MODEL_NAME = settings.ANALYSIS_LLM_MODEL
+    DEVICE = f"cuda:{settings.DEVICE_NUM}" if torch.cuda.is_available() else "cpu"
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, token=settings.HUGGINGFACEHUB_API_TOKEN).to(DEVICE)
+    MAX_TOKENS = model.config.max_position_embeddings
 
     for file_path in files:
         try:
@@ -162,7 +164,7 @@ async def analyze_files(owner, repo, branch, token=None):
                 continue
 
             # LLaMA 모델을 사용하여 요약 생성 (import 구문이 제거된 내용으로)
-            summary = summarize_code_with_llama(content)['final_summary']
+            summary = summarize_code_with_llama(content, DEVICE, tokenizer, model, MAX_TOKENS)['final_summary']
             print(f"LOG: Analyzing success file {file_path}")
             analysis_results[file_path] = summary
         except UnicodeDecodeError as e:
@@ -205,6 +207,7 @@ async def generate_openai_summary(content, directory_structure, example_summary)
     except Exception as e:
         print(f"LOG: Error in project_summation - {str(e)}")
         return f"Error: {str(e)}"
+
 
 async def project_summation(example_summary, directory_structure):
     try:

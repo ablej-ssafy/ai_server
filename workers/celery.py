@@ -10,8 +10,8 @@ app = Celery(
 app.autodiscover_tasks(['workers.tasks.llm'], force=True)
 
 app.conf.update(
-    worker_prefetch_multiplier=1,
-    worker_concurrency=1,
+    worker_prefetch_multiplier=1,       # 작업 미리 가져오기
+    # worker_concurrency=1,
     task_serializer='pickle',           # 작업 직렬화 방법
     result_serializer='pickle',         # 결과 직렬화 방법
     accept_content=['pickle', 'json'],  # 수락할 직렬화 형식
