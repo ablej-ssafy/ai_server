@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     # SERVER
     SERVER_HOST: str
     SERVER_PORT: int
+    MAIN_SERVER_URI: str
 
     # ENVIRONMENT
     OUTPUT_DIR: str

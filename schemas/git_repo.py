@@ -10,6 +10,7 @@ class GitRepoRequest(BaseModel):
     repo: str
     branch: str
     token: Optional[str] = None
+    email: str
 
 class GitRepoFileRequest(GitRepoRequest):
     file_path: Optional[str] = None
