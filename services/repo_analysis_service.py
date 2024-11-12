@@ -10,8 +10,7 @@ import re
 import asyncio
 from fnmatch import fnmatch
 
-openai_llm = ChatOpenAI(model_name="gpt-4o-mini", max_tokens=1000, temperature=0.5)
-
+openai_llm = ChatOpenAI(model_name="gpt-4o-mini", max_tokens=1000, temperature=0.5, api_key=settings.OPENAI_API_KEY)
 
 exclude_patterns = [
     "package-lock.json", ".classpath", ".gitignore", ".project", ".settings/*",

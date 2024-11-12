@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # MODEL
     ANALYSIS_LLM_MODEL: str
+    OPENAI_API_KEY: str
 
     # CELERY
     REDIS_HOST: str
