@@ -13,10 +13,11 @@ import aiohttp
 redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
 gpu_lock = redis_client.lock('gpu_lock', timeout=600)
 
+
 # LLaMA 작업 - 한 번에 하나의 작업만 가능하도록 RedisLock 사용
 @app.task(bind=True)
 def llama_task(self, request_data: GitRepoRequest):
-    request_id = request_data.request_id
+    request_id = request_data["request_id"]
 
     try:
         # RedisLock 획득 시도
@@ -39,15 +40,18 @@ def llama_task(self, request_data: GitRepoRequest):
                 gc.collect()
                 gpu_lock.release()
         else:
-            redis_client.set(request_id, json.dumps({"status": "failed", "step": "llama_processing", "error": "GPU lock acquisition failed"}))
+            redis_client.set(request_id, json.dumps(
+                {"status": "failed", "step": "llama_processing", "error": "GPU lock acquisition failed"}))
     except LockError:
-        redis_client.set(request_id, json.dumps({"status": "failed", "step": "llama_processing", "error": "GPU lock acquisition error"}))
+        redis_client.set(request_id, json.dumps(
+            {"status": "failed", "step": "llama_processing", "error": "GPU lock acquisition error"}))
     except Exception as e:
         redis_client.set(request_id, json.dumps({"status": "failed", "step": "llama_processing", "error": str(e)}))
 
+
 # OpenAI 작업 - 여러 개의 작업 동시 실행 가능
 @app.task(bind=True)
-def openai_task(self, request_data: dict):
+def openai_task(self, request_data: GitRepoRequest):
     request_id = request_data["request_id"]
 
     async def openai_task_async():
@@ -72,22 +76,34 @@ def openai_task(self, request_data: dict):
                 request_data["owner"], request_data["repo"], request_data["branch"], request_data["token"]
             )
             result = await project_summation(summation_result, repo_trees)
+            result_json = result.json()  # ProjectSummary 인스턴스를 JSON 문자열로 변환
+            result_dict = result.dict()
 
-            redis_client.set(request_id, json.dumps({"status": "completed", "result": result}))
+            redis_client.set(request_id, json.dumps({"status": "completed", "result": result_json}))
+
+            print(
+                f"\n\n LOG: memberId - {request_data.get('memberId')}, repositoryName - {request_data.get('owner')}/{request_data.get('repo')}")
+            print(f"LOG: result_json {result_json}")
 
             async with aiohttp.ClientSession() as session:
                 try:
                     payload = {
-                        "email": request_data.get("email"),
+                        "memberId": request_data.get('memberId'),
                         "repositoryName": f"{request_data.get('owner')}/{request_data.get('repo')}",
-                        "analysisSummary": result
+                        "analysisSummary": result_dict
                     }
+
+                    headers = {
+                        "Content-Type": "application/json"
+                    }
+
                     async with session.post(f"{settings.MAIN_SERVER_URI}/v1/github/analysis/result",
-                                            json=payload) as response:
+                                            json=payload, headers=headers) as response:
                         if response.status == 200:
-                            print("LOG: Successfully sent analysis result.")
+                            print(f"LOG: Successfully sent analysis result \n{payload}.")
                         else:
-                            print(f"LOG: Failed to send analysis result. Status code: {response.status}")
+                            print(
+                                f"\nLOG: Failed to send analysis result. payload - {payload} Status code: {response.status}")
                 except Exception as e:
                     print(f"LOG: Error in sending analysis result - {str(e)}")
         except Exception as e:

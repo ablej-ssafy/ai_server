@@ -58,7 +58,7 @@ async def analyze_repo(
         request: GitRepoRequest, background_tasks: BackgroundTasks
 ):
     request_id = request.request_id
-    redis_client.set(request_id, json.dumps({"status": "initialized", "step": "pending", "email": request.email}))
+    redis_client.set(request_id, json.dumps({"status": "initialized", "step": "pending", "memberId": request.memberId}))
 
     llama_task.apply_async(args=[request.dict()])
 
