@@ -14,7 +14,7 @@ redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, d
 gpu_lock = redis_client.lock('gpu_lock', timeout=600)
 
 # LLaMA 작업 - 한 번에 하나의 작업만 가능하도록 RedisLock 사용
-@app.task(bind=True)
+@app.task(bind=True, queue='gpu_tasks')
 def llama_task(self, request_data: GitRepoRequest):
     request_id = request_data.request_id
 
