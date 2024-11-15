@@ -1,6 +1,6 @@
 from utils.git_utils import fetch_repo_files, fetch_file_content
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from typing import List
+from typing import List, Dict, Optional
 from core.config import settings
 from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
@@ -8,6 +8,7 @@ import tiktoken
 import torch
 import re
 import asyncio
+import json
 from fnmatch import fnmatch
 
 openai_llm = ChatOpenAI(model_name="gpt-4o-mini", max_tokens=1000, temperature=0.5, api_key=settings.OPENAI_API_KEY)
@@ -101,6 +102,68 @@ async def get_file_content(owner, repo, file_path, branch, token=None):
     return fetch_file_content(owner, repo, file_path, branch, token)
 
 
+async def summarize_code_with_openai(content: str) -> str:
+    try:
+        filtered_content = "\n".join(
+            line for line in content.splitlines() if not line.strip().startswith(("import", "from")))
+        cleaned_content = preprocess_content(filtered_content)
+
+        prompt = (
+            f"Summarize the essential aspects of this code, focusing only on the following:\n"
+            f"1) Key functionalities, 2) Important patterns and structures, 3) Unique techniques or dependencies.\n"
+            f"Do not mention specific function names or code details.\n\nCode:\n{cleaned_content}\n\nSummary:"
+        )
+
+        response = await asyncio.to_thread(openai_llm.invoke, prompt)
+        return response.content.strip()
+    except Exception as e:
+        print(f"LOG: Error during summarize_code_with_openai execution - {str(e)}")
+        return "Error in generating response"
+
+
+# 비동기적으로 파일 분석을 수행하는 함수
+async def analyze_files_with_openai(owner: str, repo: str, branch: str, token: Optional[str] = None) -> Dict[str, str]:
+    files = fetch_repo_files(owner, repo, branch, token)
+    files = [res for res in files if not is_excluded(res)]
+    print(f"LOG: filtered files : {files}")
+
+    analysis_results = {}
+    tasks = []
+
+    for file_path in files:
+        try:
+            content = fetch_file_content(owner, repo, file_path, branch, token)
+            if content is None:
+                print(f"LOG Skipping {file_path} due to missing content.")
+                continue
+
+            # OpenAI 요약 함수를 비동기적으로 호출하도록 task 추가
+            tasks.append(analyze_file_with_openai(file_path, content, analysis_results))
+        except UnicodeDecodeError as e:
+            print(f"LOG Failed to analyze {file_path} due to encoding error: {e}")
+        except Exception as e:
+            print(f"LOG Failed to analyze {file_path}: {e}")
+
+    # 비동기 작업 실행 (모든 작업이 완료될 때까지 대기)
+    await asyncio.gather(*tasks)
+    return analysis_results
+
+
+# 파일 하나를 비동기적으로 분석하는 함수
+async def analyze_file_with_openai(file_path: str, content: str, analysis_results: Dict[str, str]):
+    try:
+        summary = await summarize_code_with_openai(content)
+        analysis_results[file_path] = summary
+        print(f"LOG: Analyzing success file {file_path}")
+    except Exception as e:
+        print(f"LOG Failed to analyze {file_path}: {e}")
+
+
+# OpenAI API를 사용하는 analyze_files 함수
+async def analyze_files(owner, repo, branch, token=None):
+    return await analyze_files_with_openai(owner, repo, branch, token)
+
+
 def summarize_code_with_llama(content, DEVICE, tokenizer, model, MAX_TOKENS):
     try:
         filtered_content = "\n".join(
@@ -142,7 +205,7 @@ def summarize_code_with_llama(content, DEVICE, tokenizer, model, MAX_TOKENS):
             torch.cuda.empty_cache()
 
 
-async def analyze_files(owner, repo, branch, token=None):
+async def analyze_files2(owner, repo, branch, token=None):
     files = fetch_repo_files(owner, repo, branch, token)
     files = [res for res in files if not is_excluded(res)]
     print(f"LOG: filtered files : {files}")
