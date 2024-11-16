@@ -3,7 +3,7 @@ from services.repo_analysis_service import get_repo_files, get_file_content
 from schemas.git_repo import GitRepoRequest, GitRepoFileRequest
 import json
 from workers.celery import app
-from workers.tasks.llm import llama_task, openai_task
+from workers.tasks.llm import llama_task, openai_task, openai_f_task
 from core.config import settings
 import redis
 
@@ -58,9 +58,10 @@ async def analyze_repo(
         request: GitRepoRequest, background_tasks: BackgroundTasks
 ):
     request_id = request.request_id
-    redis_client.set(request_id, json.dumps({"status": "initialized", "step": "pending", "email": request.email}))
+    redis_client.set(request_id, json.dumps({"status": "initialized", "step": "pending", "memberId": request.memberId}))
 
-    llama_task.apply_async(args=[request.dict()])
+    # llama_task.apply_async(args=[request.dict()])
+    openai_f_task.apply_async(args=[request.dict()])
 
     return {"request_id": request_id, "status": "initialized"}
 

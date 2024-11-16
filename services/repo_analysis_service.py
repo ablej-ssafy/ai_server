@@ -2,6 +2,7 @@ from utils.git_utils import fetch_repo_files, fetch_file_content
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from typing import List, Dict, Optional
 from core.config import settings
+from schemas.git_repo import ProjectSummary
 from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 import tiktoken
@@ -13,12 +14,14 @@ from fnmatch import fnmatch
 
 openai_llm = ChatOpenAI(model_name="gpt-4o-mini", max_tokens=1000, temperature=0.5, api_key=settings.OPENAI_API_KEY)
 
+# openai_llm = ChatOpenAI(model_name="gpt-4", max_tokens=1000, temperature=0.5, api_key=settings.OPENAI_API_KEY)
+
 exclude_patterns = [
     "package-lock.json", ".classpath", ".gitignore", ".project", ".settings/*",
     ".git/", "*.png", "*.jpg", ".idea/*", "settings.gradle", "*.iml", "*.pptx",
     "node_modules/", "*.jar", "*.ico", "*.glb", "*.svg", "*.gif",
     "*.log", ".eslintrc.cjs", "jsconfig.json", ".eslintignore",
-    "*.tmp",
+    "*.tmp", ".DS_Store/*", ".docker/*",
     "*.sql",
     "*.pdf"
 ]
@@ -259,28 +262,52 @@ async def summation_repo_codes(file_summaries):
 
 
 async def generate_openai_summary(content, directory_structure, example_summary):
-    # 프롬프트 텍스트 정의
-    prompt = (
-        f"다음 프로젝트의 내용을 기반으로 이력서 작성에 도움이 되는 프로젝트 요약을 작성해줘. "
-        f"요약, 기술 스택, 강점 등 각각의 항목에 대해 세부적으로 작성하고, 필요시 구체적인 예시를 들어줘. 응답은 제공된 템플릿에 맞춰서 HTML로 작성해줘."
-        f"<h2>프로젝트 요약</h2>\n"
-        f"<p>이 섹션에는 프로젝트의 목적과 주요 기능을 간략하게 설명해줘. 이 프로젝트가 해결하려고 하는 문제와 이를 위해 어떤 방법을 사용했는지 기술해.</p>\n"
-        f"<h2>사용 기술</h2>\n"
-        f"<p>여기에는 프로젝트에서 사용된 주요 기술, 라이브러리, 툴들을 나열해줘. 각각의 기술이 어떤 목적으로 사용되었는지 한두 문장으로 설명해.</p>\n"
-        f"<h2>핵심 기능과 서비스의 강점</h2>\n"
-        f"<p>이 섹션에는 프로젝트의 핵심 기능과 그 기능의 강점을 설명해줘. 이 기능들이 사용자에게 어떤 이점을 제공하는지 구체적으로 작성해줘.</p>"
-        f"\n\n"
-        f"<h3>디렉터리 구조:</h3>\n<pre>{directory_structure}</pre>\n\n"
-        f"<h3>프로젝트 파일 요약:</h3>\n<pre>{example_summary}</pre>\n\n"
-    )
+    prompt = f"""
+    다음은 소프트웨어 프로젝트 코드입니다. 이 코드를 분석하여 아래 형식에 맞게 JSON으로 요약하세요.
+
+    요구사항:
+    1. 프로젝트 요약: 프로젝트의 전반적인 목표와 주요 기능을 설명합니다. 이력서에 직접 쓸 수 있을 만큼 구체적이고 매력적인 설명을 포함하십시오.
+    2. 사용 기술: 프로젝트에서 사용된 주요 기술과 그 설명을 작성합니다. 각 기술의 이름과 함께 그 기술이 프로젝트에서 어떻게 사용되었는지 상세히 서술하세요.
+    3. 핵심 기능과 서비스의 강점: 프로젝트의 주요 기능과 그 장점에 대해 작성합니다. 각 기능의 이름과 설명을 포함하며, 그 기능이 사용자에게 제공하는 구체적인 이점과 문제 해결 방식도 명확하게 서술해 주세요.
+
+    프로젝트의 디렉토리 구조:
+    {directory_structure}
+
+    프로젝트 코드 요약:
+    {example_summary}
+
+    아래 형식의 JSON 형태로 응답하세요. 각 항목은 이력서와 포트폴리오에 직접 사용할 수 있도록 상세하게 작성하십시오. (이 예시는 반드시 모든 필드를 포함해야 합니다)::
+    {{
+      "summation": "프로젝트의 목적과 기능을 설명하는 텍스트 예시",
+      "techSkills": [
+        {{
+            "skill": "기술 이름 예시",
+            "description": "기술 설명 예시"
+        }}
+      ],
+      "keyFeatures": [
+        {{
+            "feature": "기능 이름 예시",
+            "description": "기능 설명 예시"
+        }}
+      ]
+    }}
+
+    위의 요구사항에 따라 아래 구조 및 코드 요약 정보를 토대로 JSON 형식으로 한글로 작성하여 응답하십시오.
+    """
 
     try:
         response = openai_llm.invoke(prompt)
         summary_text = response.content.strip()
+        cleaned_summary_text = re.sub(r"```json\s*|\s*```", "", summary_text)
 
-        print(f"LOG: success generating")
+        print(f"LOG: summary_text {cleaned_summary_text}")
 
-        return summary_text
+        project_summary = ProjectSummary.parse_raw(cleaned_summary_text)
+
+        print(f"LOG: success generating {project_summary}")
+
+        return project_summary
     except Exception as e:
         print(f"LOG: Error in project_summation - {str(e)}")
         return f"Error: {str(e)}"
